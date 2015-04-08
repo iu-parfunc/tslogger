@@ -1,2 +1,3 @@
 # tslogger
-## Thread-safe logging for concurrent Haskell programs.
+
+Thread-safe logging for concurrent Haskell programs.
