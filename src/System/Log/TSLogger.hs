@@ -5,7 +5,7 @@
 
 {-|
 
-Thread-safe Logging with bonus controlled-schedule debugging capabilities.
+Thread-safe logging with bonus controlled-schedule debugging capabilities.
 
 This module supports logging to memory, serializing messages and deferring the work
 of actually printing them.  Another thread can flush the logged messages at its
@@ -53,8 +53,6 @@ import           System.Environment(getEnvironment)
 import           System.Random
 import           Text.Printf (printf, hPrintf)
 import           Debug.Trace (trace, traceEventIO)
-
--- import qualified Control.LVish.SchedIdempotentInternal as Sched
 
 ----------------------------------------------------------------------------------------------------
 
@@ -451,7 +449,7 @@ dbgLvl = case lookup "DEBUG" theEnv of
        Just "0" -> defaultDbg
        Just s   ->
          case reads s of
-           ((n,_):_) -> trace (" [!] LVish responding to env Var: DEBUG="++show n) n
+           ((n,_):_) -> trace (" [!] Responding to env var: DEBUG="++show n) n
            [] -> error$"Attempt to parse DEBUG env var as Int failed: "++show s
 #else 
 {-# INLINE dbgLvl #-}
