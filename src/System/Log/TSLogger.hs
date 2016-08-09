@@ -482,8 +482,8 @@ forkWithExceptions forkit descr action = do
    parent <- myThreadId
    forkit $ do
       tid <- myThreadId
-      E.catch action 
-	 (\ e -> 
+      E.catch action
+        (\ e -> 
            case E.fromException e of 
              Just E.ThreadKilled -> do
 -- Killing worker threads is normal now when exception handling, so this chatter is restricted to debug mode:
@@ -491,9 +491,9 @@ forkWithExceptions forkit descr action = do
                printf "\nThreadKilled exception inside child thread, %s (not propagating!): %s\n" (show tid) (show descr)
 #endif
                return ()
-	     _  -> do
+             _  -> do
 #ifdef DEBUG_LVAR               
                       printf "\nException inside child thread %s, %s: %s\n" (show descr) (show tid) (show e)
 #endif
                       E.throwTo parent (e :: E.SomeException)
-	 )
+        )
