@@ -2,6 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE NamedFieldPuns, BangPatterns #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 {-|
 
@@ -51,8 +52,8 @@ import           System.IO.Unsafe (unsafePerformIO)
 import           System.IO (stderr, stdout, hFlush, hPutStrLn, Handle)
 import           System.Environment(getEnvironment)
 import           System.Random
-import           Text.Printf (printf, hPrintf)
-import           Debug.Trace (trace, traceEventIO)
+import           Text.Printf (hPrintf)
+import           Debug.Trace (traceEventIO)
 
 ----------------------------------------------------------------------------------------------------
 
@@ -149,14 +150,14 @@ toString x = case x of
 
 maxWait :: Int
 maxWait = 10*1000 -- 10ms
-
+{-
 andM :: [IO Bool] -> IO a -> IO a -> IO a
 andM [] t _f = t
 andM (hd:tl) t f = do
   b <- hd
   if b then andM tl t f
        else f
-
+-}
 catchAll :: ThreadId -> E.SomeException -> IO ()
 catchAll parent exn =
   case E.fromException exn of 
@@ -222,6 +223,7 @@ runCoordinator waitWorkers shutdownFlag checkPoint logged loutDests =
              else do 
               case waitWorkers of
                 DontWait -> error "newLogger: internal invariant broken."
+                WaitDynamic -> error "UNFINISHED"
                 WaitNum target extra -> do
                   waiting2 <- flushChan waiting
                   let numWait = length waiting2
@@ -314,7 +316,7 @@ runCoordinator waitWorkers shutdownFlag checkPoint logged loutDests =
             atomicModifyIORef' logged $ \ ls -> (str:ls,())
           printAll str = mapM_ (printOne str) loutDests
 
-
+isOffTheRecord :: LogMsg -> Bool
 isOffTheRecord (OffTheRecord{}) = True
 isOffTheRecord _ = False
 
@@ -328,7 +330,7 @@ silenceOffTheRecord = case lookup "SILENCEOTR" theEnv of
        Just "false" -> False
        Just _ -> True
 
-                   
+{-                   
 chatter :: String -> IO ()
 -- chatter = hPrintf stderr
 -- chatter = printf "%s\n"
@@ -339,7 +341,7 @@ printNTrace s = do putStrLn s; traceEventIO s; hFlush stdout
 -- UNFINISHED:
 incrTasks = undefined
 decrTasks = undefined
-
+-}
 -- | Write a log message from the current thread, IF the level of the
 -- message falls into the range accepted by the given `Logger`,
 -- otherwise, the message is ignored.
@@ -411,7 +413,7 @@ tryReadSmplChan ch = do
          Seq.EmptyL -> (Seq.empty, Nothing)
          h Seq.:< t -> (t, Just h)
   return x
-
+{-
 -- | A synchronous read that must block or busy-wait until a value is available.
 readSmplChan :: SmplChan a -> IO a
 readSmplChan ch = loop =<< newBackoff maxWait
@@ -422,7 +424,7 @@ readSmplChan ch = loop =<< newBackoff maxWait
        Nothing -> do b2 <- backoff bk
                      loop b2
        Just h  -> return h
-
+-}
 -- | Always succeeds.  Asynchronous write to channel.
 writeSmplChan :: SmplChan a -> a -> IO ()
 writeSmplChan ch x = do
@@ -464,13 +466,13 @@ dbgLvl = 0
 defaultMemDbgRange :: (Int, Int)
 -- defaultMemDbgRange = (4,10)
 defaultMemDbgRange = (0,10)
-
+{-
 defaultDbg :: Int
 defaultDbg = 0
 
 replayDbg :: Int
 replayDbg = 100
-
+-}
 
 -- | Exceptions that walk up the fork-tree of threads.
 --   
@@ -478,10 +480,10 @@ replayDbg = 100
 --   garbage collected (at least as of GHC 7.6).  This means that even if it was
 --   complete, it will still be hanging around to accept the exception below.
 forkWithExceptions :: (IO () -> IO ThreadId) -> String -> IO () -> IO ThreadId
-forkWithExceptions forkit descr action = do 
+forkWithExceptions forkit _ action = do 
    parent <- myThreadId
    forkit $ do
-      tid <- myThreadId
+      _ <- myThreadId
       E.catch action
         (\ e -> 
            case E.fromException e of 
