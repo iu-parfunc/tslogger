@@ -474,9 +474,10 @@ defaultMemDbgRange = (0,10)
 #ifdef DEBUG_LVAR
 defaultDbg :: Int
 defaultDbg = 0
-
+{-
 replayDbg :: Int
 replayDbg = 100
+-}
 #endif
 
 -- | Exceptions that walk up the fork-tree of threads.
