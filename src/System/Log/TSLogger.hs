@@ -471,13 +471,13 @@ dbgLvl = 0
 defaultMemDbgRange :: (Int, Int)
 -- defaultMemDbgRange = (4,10)
 defaultMemDbgRange = (0,10)
-{-
+#ifdef DEBUG_LVAR
 defaultDbg :: Int
 defaultDbg = 0
 
 replayDbg :: Int
 replayDbg = 100
--}
+#endif
 
 -- | Exceptions that walk up the fork-tree of threads.
 --   
@@ -485,10 +485,18 @@ replayDbg = 100
 --   garbage collected (at least as of GHC 7.6).  This means that even if it was
 --   complete, it will still be hanging around to accept the exception below.
 forkWithExceptions :: (IO () -> IO ThreadId) -> String -> IO () -> IO ThreadId
-forkWithExceptions forkit _ action = do 
+#ifdef DEBUG_LVAR
+forkWithExceptions forkit descr action = do
+#else
+forkWithExceptions forkit _ action = do
+#endif
    parent <- myThreadId
    forkit $ do
+#ifdef DEBUG_LVAR
+      tid <- myThreadId
+#else
       _ <- myThreadId
+#endif
       E.catch action
         (\ e -> 
            case E.fromException e of 
