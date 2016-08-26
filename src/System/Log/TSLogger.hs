@@ -52,8 +52,13 @@ import           System.IO.Unsafe (unsafePerformIO)
 import           System.IO (stderr, stdout, hFlush, hPutStrLn, Handle)
 import           System.Environment(getEnvironment)
 import           System.Random
+#ifdef DEBUG_LVAR
+import           Text.Printf (printf, hPrintf)
+import           Debug.Trace (trace, traceEventIO)
+#else
 import           Text.Printf (hPrintf)
 import           Debug.Trace (traceEventIO)
+#endif
 
 ----------------------------------------------------------------------------------------------------
 
