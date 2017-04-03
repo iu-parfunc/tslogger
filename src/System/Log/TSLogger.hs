@@ -32,7 +32,7 @@ module System.Log.TSLogger
        (
 
          -- * Global variables
-         dbgLvl, defaultMemDbgRange,
+         dbgLvl,
 
          -- * Basic Logger interface
          newLogger,
@@ -43,11 +43,8 @@ module System.Log.TSLogger
          WaitMode(..), LogMsg(..), OutDest(..),
 
          -- * Conversion/printing
-         msgBody,
+         msgBody
                  
-         -- * Detailed configuration control
-         DbgCfg(..)
-               
          -- General utilities
          --  Backoff(totalWait), newBackoff, backoff,
        )
@@ -84,18 +81,18 @@ data OutDest = -- NoOutput -- ^ Drop them entirely.
              | OutputTo Handle -- ^ Printed human-readable output to a handle.
              | OutputInMemory  -- ^ Accumulate output in memory and flush when appropriate.
 
--- | DebugConfig: what level of debugging support is activated?
-data DbgCfg = 
-     DbgCfg { dbgRange :: Maybe (Int,Int) 
-                -- ^ Inclusive range of debug messages to accept
-                --   (i.e. filter on priority level).  If Nothing, use the default level,
-                --   which is (0,N) where N is controlled by the DEBUG environment variable.
-                --   The convention is to use Just (0,0) to disable logging.
-            , dbgDests :: [OutDest] -- ^ Destinations for debug log messages.
-            , dbgScheduling :: Bool
-                -- ^ In additional to logging debug messages, control
-                --   thread interleaving at these points when this is True.
-           }
+-- -- | DebugConfig: what level of debugging support is activated?
+-- data DbgCfg = 
+--      DbgCfg { dbgRange :: Maybe (Int,Int) 
+--                 -- ^ Inclusive range of debug messages to accept
+--                 --   (i.e. filter on priority level).  If Nothing, use the default level,
+--                 --   which is (0,N) where N is controlled by the DEBUG environment variable.
+--                 --   The convention is to use Just (0,0) to disable logging.
+--             , dbgDests :: [OutDest] -- ^ Destinations for debug log messages.
+--             , dbgScheduling :: Bool
+--                 -- ^ In additional to logging debug messages, control
+--                 --   thread interleaving at these points when this is True.
+--            }
 
 -- | A Logger coordinates a set of threads that print debug logging messages.
 --
@@ -129,15 +126,18 @@ data Writer = Writer { who :: String
 
 -- | Several different ways we know to wait for quiescence in the concurrent mutator
 -- before proceeding.
-data WaitMode = WaitDynamic -- ^ UNFINISHED: Dynamically track tasks/workers.  The
+data WaitMode =
+--                WaitDynamic -- ^ UNFINISHED: Dynamically track tasks/workers.  The
                             -- num workers starts at 1 and then is modified
                             -- with `incrTasks` and `decrTasks`.
-              | WaitNum {
+
+                WaitNum {
                 numThreads  :: Int,   -- ^ How many threads total must check in?
                 downThreads :: IO Int -- ^ Poll how many threads WON'T participate this round.
                                       --   After all *productive* threads have checked in 
                                       --   this number must grow to eventually include all other threads.
                 } -- ^ A fixed set of threads must check-in each round before proceeding.
+
               | DontWait -- ^ In this mode, logging calls are non-blocking and return
                          -- immediately, rather than waiting on a central coordinator.
                          -- This is what we want if we're simply printing debugging output,
@@ -192,7 +192,7 @@ catchAll parent exn =
 
 -- | Create a new logger, which includes forking a coordinator thread.
 --   Takes as argument the number of worker threads participating in the computation.
-newLogger :: (Int,Int) -- ^ What inclusive range of messages do we accept?  Defaults to `(0,dbgLvl)`.
+newLogger :: (Int,Int) -- ^ What inclusive range of messages do we accept?  Default is typically `(0,dbgLvl)`.
           -> [OutDest] -- ^ Where do we write debugging messages?
           -> WaitMode  -- ^ Do we wait for workers before proceeding sequentially but randomly (fuzz
                        --   testing event interleavings)?
@@ -218,7 +218,8 @@ newLogger (minLvl, maxLvl) loutDests waitWorkers = do
 --------------------------------------------------------------------------------
 
 -- | Run a logging coordinator thread until completion/shutdown.  This
--- coordinator manages the interleaving of events that 
+-- coordinator manages the interleaving of events that are allowed to proceed.
+-- 
 runCoordinator :: WaitMode   -- ^ By which method do we wait for all workers to quiesce?
                -> IORef Bool -- ^ Set to True (by someone other than the coordinator) when the
                              --   system should shutdown.
@@ -472,7 +473,7 @@ writeSmplChan ch x = do
 theEnv :: [(String, String)]
 theEnv = unsafePerformIO getEnvironment
 
--- | Debugging flag shared by several modules.
+-- | Debugging flag used by pure code to tell if debugging chatter should be active.
 --   This is activated by setting the environment variable @DEBUG=1..5@.
 -- 
 --   By convention @DEBUG=100@ turns on full sequentialization of the program and
@@ -499,9 +500,9 @@ dbgLvl = 0
 -- used for fuzz testing concurrent interleavings.  Setting `dbgRange`
 -- in the `DbgCfg` to this value should give you only the messages
 -- necessary for stress testing schedules.
-defaultMemDbgRange :: (Int, Int)
+_defaultMemDbgRange :: (Int, Int)
 -- defaultMemDbgRange = (4,10)
-defaultMemDbgRange = (0,10)
+_defaultMemDbgRange = (0,10)
 #ifdef DEBUG_LOGGER
 defaultDbg :: Int
 defaultDbg = 0
