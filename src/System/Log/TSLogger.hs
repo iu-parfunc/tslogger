@@ -144,7 +144,7 @@ data WaitMode =
                          -- not controlling the schedule for stress testing.
 
 instance Show WaitMode where
-  show WaitDynamic         = "WaitDynamic"
+--  show WaitDynamic         = "WaitDynamic"
   show WaitNum{numThreads} = "WaitNum("++show numThreads++")"
   show DontWait            = "DontWait"
 
@@ -244,7 +244,7 @@ runCoordinator waitWorkers shutdownFlag checkPoint logged loutDests =
              else do 
               case waitWorkers of
                 DontWait -> error "newLogger: internal invariant broken."
-                WaitDynamic -> error "UNFINISHED"
+--                WaitDynamic -> error "UNFINISHED"
                 WaitNum target extra -> do
                   waiting2 <- flushChan waiting
                   let numWait = length waiting2
