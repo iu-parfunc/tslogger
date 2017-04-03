@@ -13,11 +13,18 @@ of actually printing them.  Another thread can flush the logged messages at its
 leisure.
 
 The second capability of this infrastructure is to use the debugging print messages
-as points at which to gate the execution of the program.  That is, each `logStrLn_`
+as points at which to gate the execution of the program.  That is, each `logOn`
 call becomes a place where the program blocks and checks in with a central
 coordinator, which only allows one thread to unblock at a time.  Thus, if there are
 sufficient debug logging messages in the program, this can enable a form of
 deterministic replay (and quickcheck-style testing of different interleavings).
+This becomes most useful when there is a log message before each read and write 
+to shared memory.
+
+Note that this library allows compile-time toggling of debug support.
+When it is compiled out, it should have no overhead. When it is
+compiled in, it will be controlled by an environment variable
+dynamically.
 
  -}
 
@@ -27,16 +34,22 @@ module System.Log.TSLogger
          -- * Global variables
          dbgLvl, defaultMemDbgRange,
 
-         -- * New logger interface
-         newLogger, logOn, Logger(closeIt, flushLogs, minLvl, maxLvl),
-         WaitMode(..), LogMsg(..), mapMsg, OutDest(..),
+         -- * Basic Logger interface
+         newLogger,
+         logStrLn, logByteStringLn, logTextLn, 
 
-         -- * General utilities
-         forkWithExceptions,
+         -- * detailed interface.
+         logOn, Logger(closeIt, flushLogs, minLvl, maxLvl),
+         WaitMode(..), LogMsg(..), OutDest(..),
 
-         Backoff(totalWait), newBackoff, backoff,
-
+         -- * Conversion/printing
+         msgBody,
+                 
+         -- * Detailed configuration control
          DbgCfg(..)
+               
+         -- General utilities
+         --  Backoff(totalWait), newBackoff, backoff,
        )
        where
 
@@ -52,13 +65,16 @@ import           System.IO.Unsafe (unsafePerformIO)
 import           System.IO (stderr, stdout, hFlush, hPutStrLn, Handle)
 import           System.Environment(getEnvironment)
 import           System.Random
-#ifdef DEBUG_LVAR
+#ifdef DEBUG_LOGGER
 import           Text.Printf (printf, hPrintf)
 import           Debug.Trace (trace, traceEventIO)
 #else
 import           Text.Printf (hPrintf)
 import           Debug.Trace (traceEventIO)
 #endif
+
+import qualified Data.Text as T
+import qualified Data.ByteString.Char8 as B
 
 ----------------------------------------------------------------------------------------------------
 
@@ -83,8 +99,8 @@ data DbgCfg =
 
 -- | A Logger coordinates a set of threads that print debug logging messages.
 --
---   This are abstract objects supporting only the operations provided by this module
---   and the non-hidden fields of the Logger.
+--   Loggers are abstract objects supporting only the operations provided by this module
+--   and the non-hidden fields of the Logger data type.
 data Logger = Logger { coordinator :: A.Async () -- ThreadId
                                       -- ^ (private) The thread that chooses which action to unblock next
                                       -- and handles printing to the screen as well.
@@ -126,33 +142,31 @@ data WaitMode = WaitDynamic -- ^ UNFINISHED: Dynamically track tasks/workers.  T
                          -- immediately, rather than waiting on a central coordinator.
                          -- This is what we want if we're simply printing debugging output,
                          -- not controlling the schedule for stress testing.
-  deriving Show
 
-instance Show (IO Bool) where
-  show _ = "<IO Bool>"
-  
-instance Show (IO Int) where
-  show _ = "<IO Int>"
+instance Show WaitMode where
+  show WaitDynamic         = "WaitDynamic"
+  show WaitNum{numThreads} = "WaitNum("++show numThreads++")"
+  show DontWait            = "DontWait"
 
--- | We allow logging in O(1) time in String or ByteString format.  In practice the
--- distinction is not that important, because only *thunks* should be logged; the
--- thread printing the logs should deal with forcing those thunks.
+
+-- | We allow logging in O(1) time in String format.  In practice
+-- string conversions are not that important, because only *thunks*
+-- should be logged; the thread printing the logs should deal with
+-- forcing those thunks.
 data LogMsg = StrMsg { lvl::Int, body::String }
             | OffTheRecord { lvl :: Int, obod :: String }
                 -- ^ This sort of message is chatter and NOT meant 
                 --   to participate in the scheduler-testing framework.
---          | ByteStrMsg { lvl::Int,  }
+--          | ByteStrMsg { lvl::Int, bbody::ByteString }
   deriving (Show,Eq,Ord,Read)
 
-mapMsg :: (String -> String) -> LogMsg -> LogMsg
-mapMsg f (StrMsg l s)       = StrMsg       l (f s)
-mapMsg f (OffTheRecord l s) = OffTheRecord l (f s)
-
-toString :: LogMsg -> String
-toString x = case x of 
+-- | Convert just the body of the log message to a string.
+msgBody :: LogMsg -> String
+msgBody x = case x of 
                StrMsg {body} -> body
                OffTheRecord _ s -> s
 
+-- | Maximum wait for the backoff mechanism.
 maxWait :: Int
 maxWait = 10*1000 -- 10ms
 {-
@@ -163,6 +177,7 @@ andM (hd:tl) t f = do
   if b then andM tl t f
        else f
 -}
+
 catchAll :: ThreadId -> E.SomeException -> IO ()
 catchAll parent exn =
   case E.fromException exn of 
@@ -283,8 +298,8 @@ runCoordinator waitWorkers shutdownFlag checkPoint logged loutDests =
           pickAndProceed [] = error "pickAndProceed: this should only be called on a non-empty list"
           pickAndProceed waiting = do
             let order a b =
-                  let s1 = toString (msg a)
-                      s2 = toString (msg b) in
+                  let s1 = msgBody (msg a)
+                      s2 = msgBody (msg b) in
                   case compare s1 s2 of
                     GT -> GT
                     LT -> LT
@@ -310,7 +325,7 @@ runCoordinator waitWorkers shutdownFlag checkPoint logged loutDests =
           -- This is the format we use for debugging messages
           formatMessage extra Writer{msg} =
                let leadchar = if isOffTheRecord msg then "\\" else "|" in
-               leadchar++show (lvl msg)++ "| "++extra++ toString msg
+               leadchar++show (lvl msg)++ "| "++extra++ msgBody msg
           -- One of these message reports how many tasks are in parallel with it:
           messageInContext pos len wr = formatMessage ("#"++show (1+pos)++" of "++show len ++": ") wr
           printOne str (OutputTo h)   = hPrintf h "%s\n" str
@@ -347,6 +362,22 @@ printNTrace s = do putStrLn s; traceEventIO s; hFlush stdout
 incrTasks = undefined
 decrTasks = undefined
 -}
+
+
+-- | Log a string message at a given verbosity level.
+logStrLn :: Logger -> Int -> String -> IO ()
+logStrLn l i s = logOn l (StrMsg i s)
+
+-- | Log a bytestring message at a given verbosity level.
+logByteStringLn :: Logger -> Int -> B.ByteString -> IO ()
+logByteStringLn l i b = logStrLn l i (B.unpack b)
+ -- TODO: More efficient version ^^ 
+    
+-- | Log a Text message at a given verbosity level.
+logTextLn :: Logger -> Int -> T.Text -> IO ()
+logTextLn l i t = logStrLn l i (T.unpack t)
+ -- TODO: More efficient version ^^ 
+          
 -- | Write a log message from the current thread, IF the level of the
 -- message falls into the range accepted by the given `Logger`,
 -- otherwise, the message is ignored.
@@ -448,7 +479,7 @@ theEnv = unsafePerformIO getEnvironment
 --   control over the interleavings in concurrent code, enabling systematic debugging
 --   of concurrency problems.
 dbgLvl :: Int
-#ifdef DEBUG_LVAR
+#ifdef DEBUG_LOGGER
 {-# NOINLINE dbgLvl #-}
 dbgLvl = case lookup "DEBUG" theEnv of
        Nothing  -> defaultDbg
@@ -464,14 +495,14 @@ dbgLvl = 0
 #endif
 
 -- | This codifies the convention of keeping fine-grained
--- pre-each-memory-modification messages at higher debug levels.
--- These are used for fuzz testing concurrent interleavings.  Setting
--- `dbgRange` in the `DbgCfg` to this value should give you only the
--- messages necessary for stress testing schedules.
+-- per-memory-modification messages at higher debug levels.  These are
+-- used for fuzz testing concurrent interleavings.  Setting `dbgRange`
+-- in the `DbgCfg` to this value should give you only the messages
+-- necessary for stress testing schedules.
 defaultMemDbgRange :: (Int, Int)
 -- defaultMemDbgRange = (4,10)
 defaultMemDbgRange = (0,10)
-#ifdef DEBUG_LVAR
+#ifdef DEBUG_LOGGER
 defaultDbg :: Int
 defaultDbg = 0
 {-
@@ -480,36 +511,3 @@ replayDbg = 100
 -}
 #endif
 
--- | Exceptions that walk up the fork-tree of threads.
---   
---   WARNING: By holding onto the ThreadId we keep the parent thread from being
---   garbage collected (at least as of GHC 7.6).  This means that even if it was
---   complete, it will still be hanging around to accept the exception below.
-forkWithExceptions :: (IO () -> IO ThreadId) -> String -> IO () -> IO ThreadId
-#ifdef DEBUG_LVAR
-forkWithExceptions forkit descr action = do
-#else
-forkWithExceptions forkit _ action = do
-#endif
-   parent <- myThreadId
-   forkit $ do
-#ifdef DEBUG_LVAR
-      tid <- myThreadId
-#else
-      _ <- myThreadId
-#endif
-      E.catch action
-        (\ e -> 
-           case E.fromException e of 
-             Just E.ThreadKilled -> do
--- Killing worker threads is normal now when exception handling, so this chatter is restricted to debug mode:
-#ifdef DEBUG_LVAR
-               printf "\nThreadKilled exception inside child thread, %s (not propagating!): %s\n" (show tid) (show descr)
-#endif
-               return ()
-             _  -> do
-#ifdef DEBUG_LVAR               
-                      printf "\nException inside child thread %s, %s: %s\n" (show descr) (show tid) (show e)
-#endif
-                      E.throwTo parent (e :: E.SomeException)
-        )
